@@ -1,0 +1,307 @@
+(function () {
+  const CORE_MOODS = ["happy", "sad", "motivational", "chill", "focus", "learning"];
+
+  let optionalDebounce;
+  /** @type {object[]} */
+  let lastFetchedCatalog = [];
+
+  const els = {
+    mood: document.getElementById("mood"),
+    kind: document.getElementById("kind"),
+    optional: document.getElementById("optional"),
+    grid: document.getElementById("grid"),
+    empty: document.getElementById("empty"),
+    resultCount: document.getElementById("resultCount"),
+    btnSuggest: document.getElementById("btnSuggest"),
+    btnReset: document.getElementById("btnReset"),
+    playerDock: document.getElementById("playerDock"),
+    dockFrame: document.getElementById("dockFrame"),
+    playerModal: document.getElementById("playerModal"),
+    playerFrame: document.getElementById("playerFrame"),
+    closeModal: document.getElementById("closeModal"),
+    closeDock: document.getElementById("closeDock"),
+  };
+
+  function norm(s) {
+    return String(s || "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function uniqSortedCi(values) {
+    return [...new Set(values.map((v) => String(v).toLowerCase()))].sort((a, b) => a.localeCompare(b));
+  }
+
+  function moodSeedList() {
+    const fromWindow = Array.isArray(window.MOOD_OPTIONS) ? window.MOOD_OPTIONS : [];
+    const fromLib = [];
+    const lib = Array.isArray(window.VIDEO_LIBRARY) ? window.VIDEO_LIBRARY : [];
+    for (const v of lib) {
+      (v.moods || []).forEach((m) => fromLib.push(m));
+    }
+    return uniqSortedCi([...CORE_MOODS, ...fromWindow, ...fromLib]);
+  }
+
+  function mapKindToType(kindValue) {
+    const k = norm(kindValue);
+    if (!k || k === "indian") return "";
+    const map = {
+      song: "song",
+      comedy: "podcast",
+      action: "motivation",
+      romance: "song",
+      documentary: "education",
+      trailer: "interview",
+    };
+    return map[k] || "";
+  }
+
+  function readFiltersFromDom() {
+    const kindVal = els.kind.value;
+    return {
+      mood: els.mood.value,
+      optional: els.optional ? els.optional.value : "",
+      type: mapKindToType(kindVal),
+      legacyKind: kindVal,
+    };
+  }
+
+  function hasActiveFilters(filters) {
+    return !!(norm(filters.mood) || norm(filters.legacyKind) || norm(filters.optional));
+  }
+
+  async function fetchSuggestionsFromServer(filters) {
+    const p = new URLSearchParams();
+    if (norm(filters.mood)) p.set("mood", filters.mood.trim());
+    if (norm(filters.legacyKind)) p.set("kind", filters.legacyKind.trim());
+    if (norm(filters.optional)) p.set("optional", filters.optional.trim());
+
+    const res = await fetch(`/api/suggestions?${p.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || data.message || res.statusText || "Server error");
+    }
+    if (!data.ok) {
+      throw new Error(data.error || "Search failed");
+    }
+    return data;
+  }
+
+  /**
+   * @param {{ mood?: string, optional?: string, type?: string, legacyKind?: string }} filters
+   * @param {object[]} catalog
+   */
+  function filterVideos(filters, catalog) {
+    const data = Array.isArray(catalog) ? catalog : [];
+    const moodN = norm(filters.mood);
+    const optN = norm(filters.optional);
+    const typeN = norm(filters.type);
+    const legacyN = norm(filters.legacyKind);
+
+    return data.filter((v) => {
+      if (legacyN === "indian" || norm(filters.mood) === "indian") {
+        if (!(v.moods || []).map(norm).includes("indian")) return false;
+      }
+      if (moodN && !(v.moods || []).map(norm).includes(moodN)) return false;
+      if (optN && !norm(v.creator).includes(optN) && !norm(v.title).includes(optN)) {
+        return false;
+      }
+      if (typeN) {
+        const types = (v.type || []).map(norm);
+        if (!types.includes(typeN)) return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * @param {object[]} list
+   * @param {number} count
+   */
+  function getRandomSuggestions(list, count) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const n = Math.max(0, Math.min(count, arr.length));
+    return arr.slice(0, n);
+  }
+
+  function thumbUrl(youtubeId) {
+    return `https://img.youtube.com/vi/${encodeURIComponent(youtubeId)}/mqdefault.jpg`;
+  }
+
+  function embedSrc(youtubeId) {
+    return `https://www.youtube.com/embed/${encodeURIComponent(youtubeId)}?rel=0`;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function tagMarkup(video) {
+    const moods = (video.moods || []).map((m) => `<span class="kind-pill">${escapeHtml(m)}</span>`);
+    const types = (video.type || []).map((t) => `<span class="kind-pill tag-pill">${escapeHtml(t)}</span>`);
+    return [...moods, ...types].join("");
+  }
+
+  /**
+   * @param {object[]} videos
+   */
+  function renderVideos(videos) {
+    els.grid.innerHTML = "";
+    const emptyP = els.empty.querySelector("p");
+
+    if (!videos.length) {
+      els.empty.classList.remove("hidden");
+      if (emptyP) emptyP.textContent = "No videos found for this mood or creator.";
+      els.resultCount.textContent = "No results.";
+      return;
+    }
+
+    els.empty.classList.add("hidden");
+    if (emptyP) emptyP.textContent = "No matches. Try another mood, kind, or optional search.";
+    els.resultCount.textContent =
+      videos.length === 1 ? "1 suggestion" : `${videos.length} suggestions`;
+
+    const frag = document.createDocumentFragment();
+    for (const v of videos) {
+      const li = document.createElement("li");
+      const card = document.createElement("div");
+      card.className = "card card-embed";
+
+      card.innerHTML = `
+        <div class="thumb-wrap">
+          <img src="${thumbUrl(v.youtubeId)}" alt="" loading="lazy" width="320" height="180" />
+        </div>
+        <div class="card-body">
+          <h3 class="card-title">${escapeHtml(v.title)}</h3>
+          <p class="card-creator">${escapeHtml(v.creator)}</p>
+          <div class="meta meta-tags">${tagMarkup(v)}</div>
+        </div>
+        <div class="ratio card-iframe">
+          <iframe
+            src="${embedSrc(v.youtubeId)}"
+            title="${escapeHtml(v.title)}"
+            allowfullscreen
+            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          ></iframe>
+        </div>
+      `;
+
+      li.appendChild(card);
+      frag.appendChild(li);
+    }
+    els.grid.appendChild(frag);
+  }
+
+  function showBackendHint(message) {
+    lastFetchedCatalog = [];
+    els.resultCount.textContent = "Could not load suggestions.";
+    const emptyP = els.empty.querySelector("p");
+    if (emptyP) {
+      emptyP.textContent =
+        message ||
+        'Run the scraper server from this folder: pip install -r requirements.txt then python server.py — then open http://127.0.0.1:8080/';
+    }
+    els.empty.classList.remove("hidden");
+    els.grid.innerHTML = "";
+  }
+
+  async function applyView() {
+    if (els.playerDock) els.playerDock.classList.add("hidden");
+    if (els.dockFrame) els.dockFrame.src = "";
+
+    const filters = readFiltersFromDom();
+    els.resultCount.textContent = "Loading from YouTube…";
+
+    try {
+      const data = await fetchSuggestionsFromServer(filters);
+      const raw = Array.isArray(data.videos) ? data.videos : [];
+      lastFetchedCatalog = raw;
+      const refined = filterVideos(filters, raw);
+      renderVideos(refined.length ? refined : raw);
+    } catch (e) {
+      const msg = String(e.message || e);
+      if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
+        showBackendHint(
+          "Cannot reach the MoodTube server. Open this app via http://127.0.0.1:8080 after starting: python server.py"
+        );
+      } else {
+        showBackendHint(msg);
+      }
+    }
+  }
+
+  async function onSuggestForMe() {
+    if (els.playerDock) els.playerDock.classList.add("hidden");
+    if (els.dockFrame) els.dockFrame.src = "";
+
+    if (!lastFetchedCatalog.length) {
+      await applyView();
+    }
+
+    const filters = readFiltersFromDom();
+    const refined = filterVideos(filters, lastFetchedCatalog);
+    const pool = refined.length ? refined : lastFetchedCatalog;
+    const picked = getRandomSuggestions(pool, 5);
+    renderVideos(picked);
+  }
+
+  function resetFilters() {
+    if (els.optional) els.optional.value = "";
+    els.mood.value = "";
+    els.kind.value = "";
+    if (els.playerModal && els.playerModal.open) {
+      els.playerModal.close();
+      if (els.playerFrame) els.playerFrame.src = "";
+    }
+    applyView();
+  }
+
+  function populateMoods() {
+    for (const m of moodSeedList()) {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m.charAt(0).toUpperCase() + m.slice(1);
+      els.mood.appendChild(opt);
+    }
+  }
+
+  window.filterVideos = filterVideos;
+  window.getRandomSuggestions = getRandomSuggestions;
+  window.renderVideos = renderVideos;
+
+  populateMoods();
+  applyView();
+
+  els.mood.addEventListener("change", applyView);
+  els.kind.addEventListener("change", applyView);
+  if (els.optional) {
+    els.optional.addEventListener("input", () => {
+      clearTimeout(optionalDebounce);
+      optionalDebounce = setTimeout(applyView, 450);
+    });
+  }
+
+  els.btnSuggest.addEventListener("click", () => void onSuggestForMe());
+  els.btnReset.addEventListener("click", resetFilters);
+
+  if (els.closeDock) {
+    els.closeDock.addEventListener("click", () => {
+      els.playerDock.classList.add("hidden");
+      if (els.dockFrame) els.dockFrame.src = "";
+    });
+  }
+  if (els.closeModal) {
+    els.closeModal.addEventListener("click", () => {
+      els.playerModal.close();
+      if (els.playerFrame) els.playerFrame.src = "";
+    });
+  }
+})();

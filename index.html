@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MoodTube — Video suggestions by mood</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-gradient" aria-hidden="true"></div>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">▶</span>
+      <div>
+        <h1>MoodTube</h1>
+        <p class="tagline">Pick <strong>Mood</strong> and <strong>Kind</strong> — suggestions come from YouTube via the local server (no API key).</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls" aria-label="Filters">
+      <div class="field-row">
+        <div class="field">
+          <label for="mood">Mood</label>
+          <select id="mood" name="mood">
+            <option value="">Any mood</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="kind">Kind</label>
+          <select id="kind" name="kind">
+            <option value="">Any kind</option>
+            <option value="song">Song / music</option>
+            <option value="comedy">Comedy</option>
+            <option value="action">Action</option>
+            <option value="romance">Romance clips</option>
+            <option value="documentary">Documentary</option>
+            <option value="trailer">Trailers</option>
+            <option value="indian">Indian cinema mix</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="optional">Optional search <span class="label-muted">(artist or extra words)</span></label>
+        <input
+          type="text"
+          id="optional"
+          name="optional"
+          placeholder="e.g. Arijit Singh, study mix, 1990s…"
+          autocomplete="off"
+        />
+        <p class="field-note">Leave blank to search by mood and kind only. This text is added to the YouTube search query.</p>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnSuggest">Suggest for me</button>
+        <button type="button" class="btn ghost" id="btnReset">Clear filters</button>
+      </div>
+      <p class="hint" id="resultCount" role="status"></p>
+    </section>
+
+    <section class="panel results" aria-label="Results">
+      <div id="playerDock" class="player-dock hidden" aria-live="polite">
+        <div class="player-dock-head">
+          <div>
+            <p class="player-dock-label">Now playing</p>
+            <h2 class="player-dock-title" id="dockTitle"></h2>
+          </div>
+          <div class="player-dock-actions">
+            <button type="button" class="btn ghost btn-sm" id="btnPopout" title="Open in floating window">Pop out</button>
+            <button type="button" class="icon-btn" id="closeDock" aria-label="Close inline player">×</button>
+          </div>
+        </div>
+        <div class="ratio dock-ratio">
+          <iframe id="dockFrame" title="Inline video player" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>
+        </div>
+      </div>
+      <div id="empty" class="empty hidden">
+        <p>No matches. Try another mood, kind, or optional search.</p>
+      </div>
+      <ul class="grid" id="grid"></ul>
+    </section>
+  </main>
+
+  <dialog class="modal" id="playerModal" aria-labelledby="modalTitle">
+    <div class="modal-inner">
+      <header class="modal-head">
+        <h2 id="modalTitle"></h2>
+        <button type="button" class="icon-btn" id="closeModal" aria-label="Close player">×</button>
+      </header>
+      <div class="ratio">
+        <iframe id="playerFrame" title="Video player" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
