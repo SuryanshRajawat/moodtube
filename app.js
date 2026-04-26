@@ -10,7 +10,9 @@
   const els = {
     mood: document.getElementById("mood"),
     kind: document.getElementById("kind"),
+    industry: document.getElementById("industry"),
     optional: document.getElementById("optional"),
+    limit: document.getElementById("limit"),
     grid: document.getElementById("grid"),
     empty: document.getElementById("empty"),
     resultCount: document.getElementById("resultCount"),
@@ -51,7 +53,7 @@
       song: "song",
       comedy: "podcast",
       action: "motivation",
-      romance: "song",
+      sports: "sports",
       documentary: "education",
       trailer: "interview",
     };
@@ -60,11 +62,15 @@
 
   function readFiltersFromDom() {
     const kindVal = els.kind.value;
+    const industryVal = els.industry ? els.industry.value : "";
+    const limitVal = parseInt(els.limit && els.limit.value ? els.limit.value : "24", 10);
     return {
       mood: els.mood.value,
       optional: els.optional ? els.optional.value : "",
       type: mapKindToType(kindVal),
       legacyKind: kindVal,
+      industry: industryVal,
+      limit: Number.isFinite(limitVal) ? limitVal : 24,
     };
   }
 
@@ -73,10 +79,16 @@
   }
 
   async function fetchSuggestionsFromServer(filters) {
+    if (!Number.isFinite(filters.limit) || filters.limit < 10 || filters.limit > 50) {
+      throw new Error("Out of limit. Please choose a value between 10 and 50.");
+    }
+
     const p = new URLSearchParams();
     if (norm(filters.mood)) p.set("mood", filters.mood.trim());
     if (norm(filters.legacyKind)) p.set("kind", filters.legacyKind.trim());
+    if (norm(filters.industry)) p.set("industry", filters.industry.trim());
     if (norm(filters.optional)) p.set("optional", filters.optional.trim());
+    p.set("limit", String(filters.limit));
 
     const res = await fetch(`/api/suggestions?${p.toString()}`);
     const data = await res.json().catch(() => ({}));
@@ -90,7 +102,13 @@
   }
 
   function cacheKeyForFilters(filters) {
-    return [norm(filters.mood), norm(filters.legacyKind), norm(filters.optional)].join("|");
+    return [
+      norm(filters.mood),
+      norm(filters.legacyKind),
+      norm(filters.industry),
+      norm(filters.optional),
+      String(filters.limit || ""),
+    ].join("|");
   }
 
   /**
@@ -266,8 +284,10 @@
 
   function resetFilters() {
     if (els.optional) els.optional.value = "";
+    if (els.limit) els.limit.value = "24";
     els.mood.value = "";
     els.kind.value = "";
+    if (els.industry) els.industry.value = "";
     if (els.playerModal && els.playerModal.open) {
       els.playerModal.close();
       if (els.playerFrame) els.playerFrame.src = "";
@@ -293,6 +313,12 @@
 
   els.mood.addEventListener("change", applyView);
   els.kind.addEventListener("change", applyView);
+  if (els.industry) {
+    els.industry.addEventListener("change", applyView);
+  }
+  if (els.limit) {
+    els.limit.addEventListener("change", applyView);
+  }
   if (els.optional) {
     els.optional.addEventListener("input", () => {
       clearTimeout(optionalDebounce);

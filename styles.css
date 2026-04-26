@@ -128,6 +128,10 @@ body {
   margin-bottom: 0;
 }
 
+.field-row .field.full-row {
+  grid-column: 1 / -1;
+}
+
 label {
   display: block;
   font-size: 0.78rem;

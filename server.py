@@ -28,7 +28,7 @@ KIND_KEYWORDS = {
     "song": "official music audio",
     "comedy": "comedy funny sketch",
     "action": "action movie scene",
-    "romance": "romantic love movie",
+    "sports": "sports highlights match",
     "documentary": "documentary nature history",
     "trailer": "official trailer",
     "indian": "bollywood hindi song",
@@ -47,17 +47,18 @@ def map_kind_to_type(kind: str) -> str:
         "song": "song",
         "comedy": "podcast",
         "action": "motivation",
-        "romance": "song",
+        "sports": "sports",
         "documentary": "education",
         "trailer": "interview",
     }.get(k, "")
 
 
-def build_search_query(mood: str, kind: str, optional: str) -> str:
+def build_search_query(mood: str, kind: str, optional: str, industry: str) -> str:
     parts: list[str] = []
     opt = (optional or "").strip()
     mood_l = _norm(mood)
     kind_l = _norm(kind)
+    industry_l = _norm(industry)
 
     if opt:
         parts.append(opt)
@@ -68,17 +69,22 @@ def build_search_query(mood: str, kind: str, optional: str) -> str:
         parts.extend(["bollywood", "hindi", "indian"])
     elif kind_l and kind_l in KIND_KEYWORDS:
         parts.append(KIND_KEYWORDS[kind_l])
+    if industry_l == "bollywood":
+        parts.extend(["bollywood", "hindi", "indian cinema"])
+    elif industry_l == "hollywood":
+        parts.extend(["hollywood", "english"])
 
     q = " ".join(parts).replace("  ", " ").strip()
     return q or "popular music videos trending today"
 
 
-def scrape_youtube(query: str, max_results: int, mood: str, kind: str) -> list[dict]:
+def scrape_youtube(query: str, max_results: int, mood: str, kind: str, industry: str = "") -> list[dict]:
     if yt_dlp is None:
         raise RuntimeError('Install dependencies: pip install -r requirements.txt (needs "yt-dlp")')
 
     mood_l = _norm(mood)
     kind_l = _norm(kind)
+    industry_l = _norm(industry)
     type_slug = map_kind_to_type(kind_l) or "video"
 
     ydl_opts: dict = {
@@ -114,6 +120,10 @@ def scrape_youtube(query: str, max_results: int, mood: str, kind: str) -> list[d
             moods.append(mood_l)
         if kind_l == "indian" or mood_l == "indian":
             moods.append("indian")
+        if industry_l == "bollywood":
+            moods.append("indian")
+        if industry_l == "hollywood":
+            moods.append("hollywood")
         if not moods:
             moods.append("trending")
 
@@ -132,9 +142,10 @@ def scrape_youtube(query: str, max_results: int, mood: str, kind: str) -> list[d
     return out
 
 
-def _api_videos_from_items(items: list[dict], mood: str, kind: str) -> list[dict]:
+def _api_videos_from_items(items: list[dict], mood: str, kind: str, industry: str = "") -> list[dict]:
     mood_l = _norm(mood)
     kind_l = _norm(kind)
+    industry_l = _norm(industry)
     type_slug = map_kind_to_type(kind_l) or "video"
 
     out: list[dict] = []
@@ -155,6 +166,10 @@ def _api_videos_from_items(items: list[dict], mood: str, kind: str) -> list[dict
             moods.append(mood_l)
         if kind_l == "indian" or mood_l == "indian":
             moods.append("indian")
+        if industry_l == "bollywood":
+            moods.append("indian")
+        if industry_l == "hollywood":
+            moods.append("hollywood")
         if not moods:
             moods.append("trending")
 
@@ -171,7 +186,7 @@ def _api_videos_from_items(items: list[dict], mood: str, kind: str) -> list[dict
     return out
 
 
-def search_youtube_api(query: str, max_results: int, mood: str, kind: str) -> list[dict]:
+def search_youtube_api(query: str, max_results: int, mood: str, kind: str, industry: str = "") -> list[dict]:
     api_key = (os.environ.get("YOUTUBE_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("Missing YOUTUBE_API_KEY")
@@ -206,7 +221,7 @@ def search_youtube_api(query: str, max_results: int, mood: str, kind: str) -> li
         raise RuntimeError(f"YouTube API error: {msg}")
 
     items = data.get("items") or []
-    return _api_videos_from_items(items, mood, kind)
+    return _api_videos_from_items(items, mood, kind, industry)
 
 
 app = Flask(__name__)
@@ -216,20 +231,28 @@ app = Flask(__name__)
 def api_suggestions():
     mood = request.args.get("mood", "") or ""
     kind = request.args.get("kind", "") or ""
+    industry = request.args.get("industry", "") or ""
     optional = request.args.get("optional", "") or ""
-
-    q = build_search_query(mood, kind, optional)
+    limit_raw = request.args.get("limit", "24") or "24"
     try:
-        videos = search_youtube_api(q, max_results=24, mood=mood, kind=kind)
+        limit = int(limit_raw)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Out of limit. Please choose a value between 10 and 50."}), 400
+    if limit < 10 or limit > 50:
+        return jsonify({"ok": False, "error": "Out of limit. Please choose a value between 10 and 50."}), 400
+
+    q = build_search_query(mood, kind, optional, industry)
+    try:
+        videos = search_youtube_api(q, max_results=limit, mood=mood, kind=kind, industry=industry)
         if not videos:
-            videos = scrape_youtube(q, max_results=24, mood=mood, kind=kind)
+            videos = scrape_youtube(q, max_results=limit, mood=mood, kind=kind, industry=industry)
         return jsonify({"ok": True, "query": q, "videos": videos})
     except Exception as e:
         err = str(e)
         # Fallback to yt-dlp for environments where API key isn't configured yet.
         if "Missing YOUTUBE_API_KEY" in err:
             try:
-                videos = scrape_youtube(q, max_results=24, mood=mood, kind=kind)
+                videos = scrape_youtube(q, max_results=limit, mood=mood, kind=kind, industry=industry)
                 return jsonify({"ok": True, "query": q, "videos": videos, "source": "yt-dlp-fallback"})
             except Exception as fallback_err:
                 return jsonify({"ok": False, "error": str(fallback_err), "query": q}), 500
