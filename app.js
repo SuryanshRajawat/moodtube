@@ -253,8 +253,9 @@
         searchCache.set(cacheKey, raw);
       }
       lastFetchedCatalog = raw;
-      const refined = filterVideos(filters, raw);
-      renderVideos(refined.length ? refined : raw);
+      // Server already applies mood/kind/industry/optional filters.
+      // Rendering raw keeps the requested limit behavior predictable.
+      renderVideos(raw);
     } catch (e) {
       const msg = String(e.message || e);
       if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
@@ -276,9 +277,8 @@
     }
 
     const filters = readFiltersFromDom();
-    const refined = filterVideos(filters, lastFetchedCatalog);
-    const pool = refined.length ? refined : lastFetchedCatalog;
-    const picked = getRandomSuggestions(pool, 5);
+    const pool = lastFetchedCatalog;
+    const picked = getRandomSuggestions(pool, filters.limit);
     renderVideos(picked);
   }
 
