@@ -157,7 +157,40 @@
   }
 
   function embedSrc(youtubeId) {
-    return `https://www.youtube.com/embed/${encodeURIComponent(youtubeId)}?rel=0`;
+    const params = new URLSearchParams({
+      rel: "0",
+      enablejsapi: "1",
+      playsinline: "1",
+      origin: window.location.origin,
+    });
+    return `https://www.youtube.com/embed/${encodeURIComponent(youtubeId)}?${params.toString()}`;
+  }
+
+  function pauseOtherEmbeds(activeFrame) {
+    const frames = els.grid.querySelectorAll("iframe");
+    for (const frame of frames) {
+      if (frame === activeFrame) continue;
+      try {
+        frame.contentWindow.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "pauseVideo",
+            args: [],
+          }),
+          "*"
+        );
+        frame.contentWindow.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "stopVideo",
+            args: [],
+          }),
+          "*"
+        );
+      } catch (_) {
+        // Ignore cross-origin / unloaded iframe messaging errors.
+      }
+    }
   }
 
   function escapeHtml(str) {
@@ -213,7 +246,7 @@
             src="${embedSrc(v.youtubeId)}"
             title="${escapeHtml(v.title)}"
             allowfullscreen
-            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           ></iframe>
         </div>
       `;
@@ -307,6 +340,30 @@
   window.filterVideos = filterVideos;
   window.getRandomSuggestions = getRandomSuggestions;
   window.renderVideos = renderVideos;
+
+  window.addEventListener("message", (evt) => {
+    let payload = evt.data;
+    if (typeof payload === "string") {
+      if (!payload.includes("onStateChange")) return;
+      try {
+        payload = JSON.parse(payload);
+      } catch (_) {
+        return;
+      }
+    }
+    if (!payload || typeof payload !== "object") return;
+
+    if (payload.event === "onStateChange" && Number(payload.info) === 1) {
+      const sourceWin = evt.source;
+      const frames = els.grid.querySelectorAll("iframe");
+      for (const frame of frames) {
+        if (frame.contentWindow === sourceWin) {
+          pauseOtherEmbeds(frame);
+          break;
+        }
+      }
+    }
+  });
 
   populateMoods();
   applyView();
