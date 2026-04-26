@@ -4,6 +4,8 @@
   let optionalDebounce;
   /** @type {object[]} */
   let lastFetchedCatalog = [];
+  /** @type {Map<string, object[]>} */
+  const searchCache = new Map();
 
   const els = {
     mood: document.getElementById("mood"),
@@ -85,6 +87,10 @@
       throw new Error(data.error || "Search failed");
     }
     return data;
+  }
+
+  function cacheKeyForFilters(filters) {
+    return [norm(filters.mood), norm(filters.legacyKind), norm(filters.optional)].join("|");
   }
 
   /**
@@ -218,11 +224,16 @@
     if (els.dockFrame) els.dockFrame.src = "";
 
     const filters = readFiltersFromDom();
+    const cacheKey = cacheKeyForFilters(filters);
     els.resultCount.textContent = "Loading from YouTube…";
 
     try {
-      const data = await fetchSuggestionsFromServer(filters);
-      const raw = Array.isArray(data.videos) ? data.videos : [];
+      let raw = searchCache.get(cacheKey);
+      if (!raw) {
+        const data = await fetchSuggestionsFromServer(filters);
+        raw = Array.isArray(data.videos) ? data.videos : [];
+        searchCache.set(cacheKey, raw);
+      }
       lastFetchedCatalog = raw;
       const refined = filterVideos(filters, raw);
       renderVideos(refined.length ? refined : raw);
@@ -285,7 +296,7 @@
   if (els.optional) {
     els.optional.addEventListener("input", () => {
       clearTimeout(optionalDebounce);
-      optionalDebounce = setTimeout(applyView, 450);
+      optionalDebounce = setTimeout(applyView, 180);
     });
   }
 
